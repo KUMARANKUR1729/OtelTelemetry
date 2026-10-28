@@ -1,0 +1,46 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - http://localhost:5173
+          allowed_headers:
+            - "*"
+        # Production: also set max_request_body_size and put an authenticating gateway in front.
+
+processors:
+  memory_limiter:            # protects the collector from traffic spikes
+    check_interval: 1s
+    limit_mib: 400
+  batch: {}
+
+exporters:
+  otlp/jaeger:               # traces -> Jaeger
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  prometheus:                # metrics -> exposed on :8889, scraped by Prometheus
+    endpoint: 0.0.0.0:8889
+    resource_to_telemetry_conversion:
+      enabled: true          # service.name etc. become labels (service_name="browser-poc")
+  otlphttp/loki:             # logs -> Loki's native OTLP endpoint (appends /v1/logs)
+    endpoint: http://loki:3100/otlp
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/jaeger, debug]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus, debug]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/loki, debug]

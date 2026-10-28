@@ -1,0 +1,46 @@
+services:
+  jaeger:                    # traces UI  http://localhost:16686
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"
+
+  collector:                 # receives traces, metrics and logs from the browser/backend on :4318
+    image: otel/opentelemetry-collector-contrib:0.164.0
+    command: ["--config=/etc/otel.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otel.yaml
+    ports:
+      - "4318:4318"          # OTLP/HTTP (browser sends here)
+      - "8889:8889"          # metrics as Prometheus text (open http://localhost:8889/metrics)
+    depends_on:
+      - jaeger
+      - loki
+
+  prometheus:                # metrics store  http://localhost:9090
+    image: prom/prometheus:v3.15.1
+    volumes:
+      - ./infra/prometheus.yaml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    depends_on:
+      - collector
+
+  loki:                      # log store (no UI of its own, query it from Grafana)
+    image: grafana/loki:3.7.9
+    ports:
+      - "3100:3100"
+
+  grafana:                   # logs + metrics + traces in one UI  http://localhost:3001
+    image: grafana/grafana:13.2.4
+    environment:             # POC ONLY: no login. Never expose this.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./infra/grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
+    ports:
+      - "3001:3000"          # 3001 because the demo backend uses 3000
+    depends_on:
+      - prometheus
+      - loki
+      - jaeger
